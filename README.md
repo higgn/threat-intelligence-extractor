@@ -28,5 +28,5 @@ A Python tool to extract threat intelligence from cybersecurity reports using **
 ## **Installation**
 1. Clone the repository:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/threat-intelligence-extractor.git
+   git clone https://github.com/higgn/threat-intelligence-extractor.git
    cd threat-intelligence-extractor
