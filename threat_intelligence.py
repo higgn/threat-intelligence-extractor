@@ -144,11 +144,11 @@ def extract_threat_actors(text: str) -> List[str]:
     """
     doc = nlp(text)
     threat_actors = list(set([ent.text for ent in doc.ents if ent.label_ == "ORG" 
-                             and ent.text.lower() not in ["microsoft", "google", "c:\\programdata\\", "appcrash", 
+                             and ent.text.lower() not in ["ip", "c2", "powershell", "dll", "anydesk", 
+                                                          "microsoft", "google", "c:\\programdata\\", "appcrash", 
                                                           "symantec protection bulletin", "vps", "ioc", "wmi", "c&c", 
-                                                          "powershell", "invoke-webrequest", "dll", "anydesk", 
-                                                          "jabswitch.exe", "symantec endpoint", "jumpcloud", 
-                                                          "45.67.230[.]91", "powershell - seedworm"]]))
+                                                          "invoke-webrequest", "jabswitch.exe", "symantec endpoint", 
+                                                          "jumpcloud", "45.67.230[.]91", "powershell - seedworm"]]))
     return threat_actors
 
 def extract_targeted_entities(text: str) -> List[str]:
@@ -157,11 +157,11 @@ def extract_targeted_entities(text: str) -> List[str]:
     """
     doc = nlp(text)
     targeted_entities = list(set([ent.text for ent in doc.ents if ent.label_ in ["ORG", "GPE"] 
-                                 and ent.text.lower() not in ["microsoft", "c:\\programdata\\", "appcrash", 
+                                 and ent.text.lower() not in ["ip", "c2", "powershell", "dll", "anydesk", 
+                                                              "microsoft", "c:\\programdata\\", "appcrash", 
                                                               "symantec protection bulletin", "vps", "ioc", "wmi", "c&c", 
-                                                              "powershell", "invoke-webrequest", "dll", "anydesk", 
-                                                              "jabswitch.exe", "symantec endpoint", "jumpcloud", 
-                                                              "45.67.230[.]91", "powershell - seedworm"]]))
+                                                              "invoke-webrequest", "jabswitch.exe", "symantec endpoint", 
+                                                              "jumpcloud", "45.67.230[.]91", "powershell - seedworm"]]))
     return targeted_entities
 
 def enrich_malware_with_virustotal(file_hash: str) -> Dict[str, str]:
@@ -202,11 +202,11 @@ def extract_malware(text: str) -> List[Dict[str, str]]:
     # Extract file hashes
     file_hashes = re.findall(HASH_PATTERN, text)
 
-    # Enrich malware details using VirusTotal API
+    # Add malware names to the list
     for malware_name in malware_names:
-        malware_details = {"Name": malware_name}
-        malware_list.append(malware_details)
+        malware_list.append({"Name": malware_name})
 
+    # Add file hashes to the list
     for file_hash in file_hashes:
         malware_details = {"Name": "Unknown", "Hash": file_hash}
         malware_details.update(enrich_malware_with_virustotal(file_hash))
@@ -254,10 +254,10 @@ if report_text:
         ioc_data = {
             "Type": ["IP Addresses", "Domains", "Email Addresses", "File Hashes"],
             "Count": [
-                len(threat_intel["IoCs"]["IP addresses"]),
-                len(threat_intel["IoCs"]["Domains"]),
-                len(threat_intel["IoCs"]["Email addresses"]),
-                len(threat_intel["IoCs"]["File hashes"]),
+                len(threat_intel["IoCs"].get("IP addresses", [])),
+                len(threat_intel["IoCs"].get("Domains", [])),
+                len(threat_intel["IoCs"].get("Email addresses", [])),
+                len(threat_intel["IoCs"].get("File hashes", [])),
             ],
         }
         df = pd.DataFrame(ioc_data)
@@ -267,23 +267,23 @@ if report_text:
     # Visualize TTPs
     if "TTPs" in selected_fields:
         st.subheader("Tactics, Techniques, and Procedures (TTPs)")
-        st.write("Tactics:", threat_intel["TTPs"]["Tactics"])
-        st.write("Techniques:", threat_intel["TTPs"]["Techniques"])
+        st.write("Tactics:", threat_intel["TTPs"].get("Tactics", []))
+        st.write("Techniques:", threat_intel["TTPs"].get("Techniques", []))
 
     # Visualize Threat Actors
     if "Threat Actor(s)" in selected_fields:
         st.subheader("Threat Actor(s)")
-        st.write(threat_intel["Threat Actor(s)"])
+        st.write(threat_intel.get("Threat Actor(s)", []))
 
     # Visualize Malware
     if "Malware" in selected_fields:
         st.subheader("Malware Details")
-        st.write(threat_intel["Malware"])
+        st.write(threat_intel.get("Malware", []))
 
     # Visualize Targeted Entities
     if "Targeted Entities" in selected_fields:
         st.subheader("Targeted Entities")
-        st.write(threat_intel["Targeted Entities"])
+        st.write(threat_intel.get("Targeted Entities", []))
 
     # Visualize Images
     if "Images" in selected_fields and images:
@@ -293,11 +293,11 @@ if report_text:
 
     # Summary Section
     st.subheader("Summary")
-    st.write(f"**Total IoCs Extracted:** {len(threat_intel['IoCs']['IP addresses']) + len(threat_intel['IoCs']['Domains']) + len(threat_intel['IoCs']['Email addresses']) + len(threat_intel['IoCs']['File hashes'])}")
-    st.write(f"**Total TTPs Identified:** {len(threat_intel['TTPs']['Tactics']) + len(threat_intel['TTPs']['Techniques'])}")
-    st.write(f"**Total Threat Actors Identified:** {len(threat_intel['Threat Actor(s)'])}")
-    st.write(f"**Total Malware Identified:** {len(threat_intel['Malware'])}")
-    st.write(f"**Total Targeted Entities Identified:** {len(threat_intel['Targeted Entities'])}")
+    st.write(f"**Total IoCs Extracted:** {len(threat_intel.get('IoCs', {}).get('IP addresses', [])) + len(threat_intel.get('IoCs', {}).get('Domains', [])) + len(threat_intel.get('IoCs', {}).get('Email addresses', [])) + len(threat_intel.get('IoCs', {}).get('File hashes', []))}")
+    st.write(f"**Total TTPs Identified:** {len(threat_intel.get('TTPs', {}).get('Tactics', [])) + len(threat_intel.get('TTPs', {}).get('Techniques', []))}")
+    st.write(f"**Total Threat Actors Identified:** {len(threat_intel.get('Threat Actor(s)', []))}")
+    st.write(f"**Total Malware Identified:** {len(threat_intel.get('Malware', []))}")
+    st.write(f"**Total Targeted Entities Identified:** {len(threat_intel.get('Targeted Entities', []))}")
     st.write(f"**Total Images Extracted:** {len(images)}")
 
     # Download Button
