@@ -188,7 +188,7 @@ def enrich_malware_with_virustotal(file_hash: str) -> Dict[str, str]:
             "tags": data.get("tags", []),
         }
     except requests.exceptions.RequestException as e:
-        logging.error(f"Error querying VirusTotal for hash {file_hash}: {e}")
+        logging.warning(f"Hash {file_hash} not found in VirusTotal: {e}")
         return {}
 
 def extract_malware(text: str) -> List[Dict[str, str]]:
