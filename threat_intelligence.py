@@ -100,7 +100,11 @@ def extract_images_from_pdf(pdf_file) -> List[Image.Image]:
             for page in pdf.pages:
                 for img in page.images:
                     img_data = img["stream"].get_data()
-                    images.append(Image.open(io.BytesIO(img_data)))
+                    try:
+                        image = Image.open(io.BytesIO(img_data))
+                        images.append(image)
+                    except Exception as e:
+                        logging.warning(f"Skipping image due to error: {e}")
     except Exception as e:
         st.error(f"Error extracting images from PDF: {e}")
     return images
