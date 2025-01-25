@@ -8,6 +8,8 @@ import plotly.express as px
 import logging
 import json
 from typing import Dict, List, Any
+from PIL import Image
+import io
 
 # Load spaCy model for Named Entity Recognition (NER)
 nlp = spacy.load("en_core_web_sm")
@@ -67,6 +69,14 @@ uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
 st.subheader("OR Paste Report Text Below")
 report_text_input = st.text_area("Paste your threat report here")
 
+# Multi-select widget for customizable outputs
+st.subheader("Customize Output")
+selected_fields = st.multiselect(
+    "Select fields to extract:",
+    ["IoCs", "TTPs", "Threat Actor(s)", "Malware", "Targeted Entities", "Images"],
+    default=["IoCs", "TTPs", "Threat Actor(s)", "Malware", "Targeted Entities", "Images"]
+)
+
 def extract_text_from_pdf(pdf_file) -> str:
     """
     Extract text from an uploaded PDF file.
@@ -79,6 +89,21 @@ def extract_text_from_pdf(pdf_file) -> str:
     except Exception as e:
         st.error(f"Error reading PDF file: {e}")
     return text
+
+def extract_images_from_pdf(pdf_file) -> List[Image.Image]:
+    """
+    Extract images from an uploaded PDF file.
+    """
+    images = []
+    try:
+        with pdfplumber.open(pdf_file) as pdf:
+            for page in pdf.pages:
+                for img in page.images:
+                    img_data = img["stream"].get_data()
+                    images.append(Image.open(io.BytesIO(img_data)))
+    except Exception as e:
+        st.error(f"Error extracting images from PDF: {e}")
+    return images
 
 def extract_iocs(text: str) -> Dict[str, List[str]]:
     """
@@ -194,11 +219,11 @@ def extract_threat_intelligence(report_text: str) -> Dict[str, Any]:
     Extract all threat intelligence data from the report.
     """
     threat_intel = {
-        "IoCs": extract_iocs(report_text),
-        "TTPs": extract_ttps(report_text),
-        "Threat Actor(s)": extract_threat_actors(report_text),
-        "Malware": extract_malware(report_text),
-        "Targeted Entities": extract_targeted_entities(report_text),
+        "IoCs": extract_iocs(report_text) if "IoCs" in selected_fields else {},
+        "TTPs": extract_ttps(report_text) if "TTPs" in selected_fields else {},
+        "Threat Actor(s)": extract_threat_actors(report_text) if "Threat Actor(s)" in selected_fields else [],
+        "Malware": extract_malware(report_text) if "Malware" in selected_fields else [],
+        "Targeted Entities": extract_targeted_entities(report_text) if "Targeted Entities" in selected_fields else [],
     }
     return threat_intel
 
@@ -206,8 +231,11 @@ def extract_threat_intelligence(report_text: str) -> Dict[str, Any]:
 if uploaded_file is not None:
     # Extract text from the uploaded PDF
     report_text = extract_text_from_pdf(uploaded_file)
+    # Extract images from the uploaded PDF
+    images = extract_images_from_pdf(uploaded_file) if "Images" in selected_fields else []
 elif report_text_input:
     report_text = report_text_input
+    images = []
 else:
     st.warning("🙂‍↕️ Hi, Please upload a PDF file or paste the report text to get started.")
     st.stop()
@@ -221,36 +249,47 @@ if report_text:
     st.json(threat_intel)
 
     # Visualize IoCs
-    st.subheader("Indicators of Compromise (IoCs)")
-    ioc_data = {
-        "Type": ["IP Addresses", "Domains", "Email Addresses", "File Hashes"],
-        "Count": [
-            len(threat_intel["IoCs"]["IP addresses"]),
-            len(threat_intel["IoCs"]["Domains"]),
-            len(threat_intel["IoCs"]["Email addresses"]),
-            len(threat_intel["IoCs"]["File hashes"]),
-        ],
-    }
-    df = pd.DataFrame(ioc_data)
-    fig = px.bar(df, x="Type", y="Count", title="IoCs by Type")
-    st.plotly_chart(fig)
+    if "IoCs" in selected_fields:
+        st.subheader("Indicators of Compromise (IoCs)")
+        ioc_data = {
+            "Type": ["IP Addresses", "Domains", "Email Addresses", "File Hashes"],
+            "Count": [
+                len(threat_intel["IoCs"]["IP addresses"]),
+                len(threat_intel["IoCs"]["Domains"]),
+                len(threat_intel["IoCs"]["Email addresses"]),
+                len(threat_intel["IoCs"]["File hashes"]),
+            ],
+        }
+        df = pd.DataFrame(ioc_data)
+        fig = px.bar(df, x="Type", y="Count", title="IoCs by Type")
+        st.plotly_chart(fig)
 
     # Visualize TTPs
-    st.subheader("Tactics, Techniques, and Procedures (TTPs)")
-    st.write("Tactics:", threat_intel["TTPs"]["Tactics"])
-    st.write("Techniques:", threat_intel["TTPs"]["Techniques"])
+    if "TTPs" in selected_fields:
+        st.subheader("Tactics, Techniques, and Procedures (TTPs)")
+        st.write("Tactics:", threat_intel["TTPs"]["Tactics"])
+        st.write("Techniques:", threat_intel["TTPs"]["Techniques"])
 
     # Visualize Threat Actors
-    st.subheader("Threat Actor(s)")
-    st.write(threat_intel["Threat Actor(s)"])
+    if "Threat Actor(s)" in selected_fields:
+        st.subheader("Threat Actor(s)")
+        st.write(threat_intel["Threat Actor(s)"])
 
     # Visualize Malware
-    st.subheader("Malware Details")
-    st.write(threat_intel["Malware"])
+    if "Malware" in selected_fields:
+        st.subheader("Malware Details")
+        st.write(threat_intel["Malware"])
 
     # Visualize Targeted Entities
-    st.subheader("Targeted Entities")
-    st.write(threat_intel["Targeted Entities"])
+    if "Targeted Entities" in selected_fields:
+        st.subheader("Targeted Entities")
+        st.write(threat_intel["Targeted Entities"])
+
+    # Visualize Images
+    if "Images" in selected_fields and images:
+        st.subheader("Extracted Images")
+        for img in images:
+            st.image(img, caption="Extracted Image", use_column_width=True)
 
     # Summary Section
     st.subheader("Summary")
@@ -259,6 +298,7 @@ if report_text:
     st.write(f"**Total Threat Actors Identified:** {len(threat_intel['Threat Actor(s)'])}")
     st.write(f"**Total Malware Identified:** {len(threat_intel['Malware'])}")
     st.write(f"**Total Targeted Entities Identified:** {len(threat_intel['Targeted Entities'])}")
+    st.write(f"**Total Images Extracted:** {len(images)}")
 
     # Download Button
     st.subheader("Download Results")
