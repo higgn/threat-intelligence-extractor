@@ -48,7 +48,7 @@ MITRE_TECHNIQUES = {
 
 # Regex patterns for IoCs
 IP_PATTERN = r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"
-DOMAIN_PATTERN = r"\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b"
+DOMAIN_PATTERN = r"\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?:\/[^\s\/]*)*\b"
 EMAIL_PATTERN = r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"
 HASH_PATTERN = r"\b[a-fA-F0-9]{32}|[a-fA-F0-9]{40}|[a-fA-F0-9]{64}\b"
 
@@ -148,11 +148,8 @@ def extract_threat_actors(text: str) -> List[str]:
     """
     doc = nlp(text)
     threat_actors = list(set([ent.text for ent in doc.ents if ent.label_ == "ORG" 
-                             and ent.text.lower() not in ["ip", "c2", "powershell", "dll", "anydesk", 
-                                                          "microsoft", "google", "c:\\programdata\\", "appcrash", 
-                                                          "symantec protection bulletin", "vps", "ioc", "wmi", "c&c", 
-                                                          "invoke-webrequest", "jabswitch.exe", "symantec endpoint", 
-                                                          "jumpcloud", "45.67.230[.]91", "powershell - seedworm"]]))
+                             and ent.text.lower() not in ["kernel32.dll", "api", "dll", "windows", "system", 
+                                                          "powershell", "explorer.exe", "http", "tcp", "ipsec"]]))
     return threat_actors
 
 def extract_targeted_entities(text: str) -> List[str]:
@@ -161,11 +158,8 @@ def extract_targeted_entities(text: str) -> List[str]:
     """
     doc = nlp(text)
     targeted_entities = list(set([ent.text for ent in doc.ents if ent.label_ in ["ORG", "GPE"] 
-                                 and ent.text.lower() not in ["ip", "c2", "powershell", "dll", "anydesk", 
-                                                              "microsoft", "c:\\programdata\\", "appcrash", 
-                                                              "symantec protection bulletin", "vps", "ioc", "wmi", "c&c", 
-                                                              "invoke-webrequest", "jabswitch.exe", "symantec endpoint", 
-                                                              "jumpcloud", "45.67.230[.]91", "powershell - seedworm"]]))
+                                 and ent.text.lower() not in ["windows", "http", "tcp", "ipsec", "powershell", 
+                                                              "explorer.exe", "api", "dll", "system"]]))
     return targeted_entities
 
 def enrich_malware_with_virustotal(file_hash: str) -> Dict[str, str]:
@@ -211,10 +205,14 @@ def extract_malware(text: str) -> List[Dict[str, str]]:
         malware_list.append({"Name": malware_name})
 
     # Add file hashes to the list
-    for file_hash in file_hashes:
-        malware_details = {"Name": "Unknown", "Hash": file_hash}
-        malware_details.update(enrich_malware_with_virustotal(file_hash))
-        malware_list.append(malware_details)
+    if "Malware" in selected_fields:
+        progress_bar = st.progress(0)
+        total_hashes = len(file_hashes)
+        for i, file_hash in enumerate(file_hashes):
+            malware_details = {"Name": "Unknown", "Hash": file_hash}
+            malware_details.update(enrich_malware_with_virustotal(file_hash))
+            malware_list.append(malware_details)
+            progress_bar.progress((i + 1) / total_hashes)
 
     return malware_list
 
