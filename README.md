@@ -1,8 +1,4 @@
-Got it! Below is the **complete, god-tier, professional README.md** for your Threat Intelligence Extractor. This includes everything from the introduction to installation, usage, example output, screenshots, and more. Just copy and paste this into your `README.md` file:
 
----
-
-```markdown
 # Threat Intelligence Extractor 🛡️
 
 A **Python-based tool** to extract threat intelligence from cybersecurity reports using **Natural Language Processing (NLP)** and the **VirusTotal API**. This tool automatically extracts key threat intelligence data, including Indicators of Compromise (IoCs), Tactics, Techniques, and Procedures (TTPs), Threat Actors, Malware details, and Targeted Entities.
