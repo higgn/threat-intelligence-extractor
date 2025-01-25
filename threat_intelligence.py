@@ -2,7 +2,10 @@ import re
 import spacy
 import requests
 import time
+import pdfplumber
+import streamlit as st
 from typing import Dict, List, Any
+from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 # Load spaCy model for Named Entity Recognition (NER)
 nlp = spacy.load("en_core_web_sm")
@@ -27,6 +30,23 @@ IP_PATTERN = r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"
 DOMAIN_PATTERN = r"\b[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b"
 EMAIL_PATTERN = r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"
 HASH_PATTERN = r"\b[a-fA-F0-9]{32}|[a-fA-F0-9]{40}|[a-fA-F0-9]{64}\b"
+
+# Streamlit App Title
+st.title("Threat Intelligence Extractor")
+st.markdown("Upload a cybersecurity report (PDF) to extract threat intelligence.")
+
+# File Uploader
+uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
+
+def extract_text_from_pdf(pdf_file: UploadedFile) -> str:
+    """
+    Extract text from an uploaded PDF file.
+    """
+    text = ""
+    with pdfplumber.open(pdf_file) as pdf:
+        for page in pdf.pages:
+            text += page.extract_text()
+    return text
 
 def extract_iocs(text: str) -> Dict[str, List[str]]:
     """
@@ -115,10 +135,19 @@ def extract_malware(text: str) -> List[Dict[str, str]]:
     malware_list = []
     doc = nlp(text)
 
-    # Extract malware names and hashes
-    malware_names = [ent.text for ent in doc.ents if ent.label_ == "PRODUCT"]
+    # List of known malware names (can be expanded)
+    known_malware = ["Shamoon", "WannaCry", "Stuxnet", "NotPetya", "HrServ", "Headlace"]
+
+    # Extract malware names
+    malware_names = []
+    for token in doc:
+        if token.text in known_malware:
+            malware_names.append(token.text)
+
+    # Extract file hashes
     file_hashes = re.findall(HASH_PATTERN, text)
 
+    # Enrich malware details
     for malware_name in malware_names:
         malware_details = enrich_malware_details(malware_name)
         malware_list.append(malware_details)
@@ -142,20 +171,40 @@ def extract_threat_intelligence(report_text: str) -> Dict[str, Any]:
     }
     return threat_intel
 
-# Example Input
-report_text = """
-The APT33 group, suspected to be from Iran, has launched a new campaign targeting
-the energy sector organizations. The attack utilizes Shamoon malware, known for its
-destructive capabilities. The threat actor exploited a vulnerability in the network
-perimeter to gain initial access. The malware was delivered via spear-phishing emails
-containing a malicious attachment. The malware's behavior was observed communicating
-with IP address 192.168.1.1 and domain example.com. The attack also involved lateral
-movement using PowerShell scripts.
-"""
+# Streamlit UI Logic
+if uploaded_file is not None:
+    # Extract text from the uploaded PDF
+    report_text = extract_text_from_pdf(uploaded_file)
 
-# Extract Threat Intelligence
-threat_intel = extract_threat_intelligence(report_text)
+    # Extract threat intelligence
+    threat_intel = extract_threat_intelligence(report_text)
 
-# Print Output
-import pprint
-pprint.pprint(threat_intel)
+    # Display results in Streamlit
+    st.subheader("Extracted Threat Intelligence")
+    st.json(threat_intel)
+
+    # Visualize IoCs
+    st.subheader("Indicators of Compromise (IoCs)")
+    st.write("IP Addresses:", threat_intel["IoCs"]["IP addresses"])
+    st.write("Domains:", threat_intel["IoCs"]["Domains"])
+    st.write("Email Addresses:", threat_intel["IoCs"]["Email addresses"])
+    st.write("File Hashes:", threat_intel["IoCs"]["File hashes"])
+
+    # Visualize TTPs
+    st.subheader("Tactics, Techniques, and Procedures (TTPs)")
+    st.write("Tactics:", threat_intel["TTPs"]["Tactics"])
+    st.write("Techniques:", threat_intel["TTPs"]["Techniques"])
+
+    # Visualize Threat Actors
+    st.subheader("Threat Actor(s)")
+    st.write(threat_intel["Threat Actor(s)"])
+
+    # Visualize Malware
+    st.subheader("Malware Details")
+    st.write(threat_intel["Malware"])
+
+    # Visualize Targeted Entities
+    st.subheader("Targeted Entities")
+    st.write(threat_intel["Targeted Entities"])
+else:
+    st.warning("Please upload a PDF file to get started.")
