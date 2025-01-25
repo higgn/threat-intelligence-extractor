@@ -3,6 +3,10 @@
 
 A **Python-based tool** to extract threat intelligence from cybersecurity reports using **Natural Language Processing (NLP)** and the **VirusTotal API**. This tool automatically extracts key threat intelligence data, including Indicators of Compromise (IoCs), Tactics, Techniques, and Procedures (TTPs), Threat Actors, Malware details, and Targeted Entities.
 
+# Live Test the script :
+
+https://hack2skill.streamlit.app/
+
 ---
 
 ## Features ✨
