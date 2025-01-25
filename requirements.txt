@@ -1,0 +1,6 @@
+spacy
+requests
+pdfplumber
+pandas
+plotly
+streamlit
