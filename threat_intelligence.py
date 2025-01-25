@@ -1,11 +1,13 @@
 import re
 import spacy
 import requests
-import time
 import pdfplumber
 import streamlit as st
+import pandas as pd
+import plotly.express as px
+import logging
+import json
 from typing import Dict, List, Any
-from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 # Load spaCy model for Named Entity Recognition (NER)
 nlp = spacy.load("en_core_web_sm")
@@ -13,39 +15,69 @@ nlp = spacy.load("en_core_web_sm")
 # VirusTotal API key (replace with your key)
 VIRUSTOTAL_API_KEY = "6e6fda27e6ce7969aca5673503a6049a629709e3496fe9b096cc31a7de6f6922"
 
-# MITRE ATT&CK mappings (simplified for this example)
+# MITRE ATT&CK mappings (expanded for this example)
 MITRE_TACTICS = {
     "Initial Access": "TA0001",
     "Execution": "TA0002",
+    "Persistence": "TA0003",
+    "Privilege Escalation": "TA0004",
+    "Defense Evasion": "TA0005",
+    "Credential Access": "TA0006",
+    "Discovery": "TA0007",
     "Lateral Movement": "TA0008",
+    "Collection": "TA0009",
+    "Exfiltration": "TA0010",
+    "Command and Control": "TA0011",
+    "Impact": "TA0040",
 }
 
 MITRE_TECHNIQUES = {
     "Spear Phishing Attachment": "T1566.001",
     "PowerShell": "T1059.001",
+    "Exploitation for Client Execution": "T1203",
+    "BYOVD": "T1068",
+    "Anti-Forensics": "T1070",
+    "Scheduled Task/Job": "T1053",
+    "Registry Run Keys / Startup Folder": "T1547.001",
+    "Process Injection": "T1055",
+    "Obfuscated Files or Information": "T1027",
+    "Data Encrypted for Impact": "T1486",
 }
 
 # Regex patterns for IoCs
 IP_PATTERN = r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"
-DOMAIN_PATTERN = r"\b[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b"
+DOMAIN_PATTERN = r"\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b"
 EMAIL_PATTERN = r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"
 HASH_PATTERN = r"\b[a-fA-F0-9]{32}|[a-fA-F0-9]{40}|[a-fA-F0-9]{64}\b"
 
+# Blacklist of system file extensions
+SYSTEM_FILE_EXTENSIONS = [".dll", ".exe", ".log", ".sys", ".tmp", ".dat", ".pf", ".php", ".evtx", ".tlb"]
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
 # Streamlit App Title
 st.title("Threat Intelligence Extractor")
-st.markdown("Upload a cybersecurity report (PDF) to extract threat intelligence.")
+st.markdown("Upload a cybersecurity report (PDF) or paste the text to extract threat intelligence.")
 
 # File Uploader
 uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
 
-def extract_text_from_pdf(pdf_file: UploadedFile) -> str:
+# Text Input Box for Copy-Pasting Reports
+st.subheader("OR Paste Report Text Below")
+report_text_input = st.text_area("Paste your threat report here")
+
+def extract_text_from_pdf(pdf_file) -> str:
     """
     Extract text from an uploaded PDF file.
     """
     text = ""
-    with pdfplumber.open(pdf_file) as pdf:
-        for page in pdf.pages:
-            text += page.extract_text()
+    try:
+        with pdfplumber.open(pdf_file) as pdf:
+            for page in pdf.pages:
+                text += page.extract_text()
+    except Exception as e:
+        st.error(f"Error reading PDF file: {e}")
     return text
 
 def extract_iocs(text: str) -> Dict[str, List[str]]:
@@ -53,10 +85,12 @@ def extract_iocs(text: str) -> Dict[str, List[str]]:
     Extract Indicators of Compromise (IoCs) from the text.
     """
     iocs = {
-        "IP addresses": re.findall(IP_PATTERN, text),
-        "Domains": re.findall(DOMAIN_PATTERN, text),
-        "Email addresses": re.findall(EMAIL_PATTERN, text),
-        "File hashes": re.findall(HASH_PATTERN, text),
+        "IP addresses": list(set(re.findall(IP_PATTERN, text))),
+        "Domains": list(set([domain for domain in re.findall(DOMAIN_PATTERN, text) 
+                            if not any(ext in domain for ext in SYSTEM_FILE_EXTENSIONS) 
+                            and not domain.lower() in ["response.content", "response.content;"]])),
+        "Email addresses": list(set(re.findall(EMAIL_PATTERN, text))),
+        "File hashes": list(set(re.findall(HASH_PATTERN, text))),
     }
     return iocs
 
@@ -84,7 +118,12 @@ def extract_threat_actors(text: str) -> List[str]:
     Extract threat actor names using spaCy NER.
     """
     doc = nlp(text)
-    threat_actors = [ent.text for ent in doc.ents if ent.label_ == "ORG"]
+    threat_actors = list(set([ent.text for ent in doc.ents if ent.label_ == "ORG" 
+                             and ent.text.lower() not in ["microsoft", "google", "c:\\programdata\\", "appcrash", 
+                                                          "symantec protection bulletin", "vps", "ioc", "wmi", "c&c", 
+                                                          "powershell", "invoke-webrequest", "dll", "anydesk", 
+                                                          "jabswitch.exe", "symantec endpoint", "jumpcloud", 
+                                                          "45.67.230[.]91", "powershell - seedworm"]]))
     return threat_actors
 
 def extract_targeted_entities(text: str) -> List[str]:
@@ -92,68 +131,60 @@ def extract_targeted_entities(text: str) -> List[str]:
     Extract targeted entities (industries or organizations) using spaCy NER.
     """
     doc = nlp(text)
-    targeted_entities = [ent.text for ent in doc.ents if ent.label_ in ["ORG", "GPE"]]
+    targeted_entities = list(set([ent.text for ent in doc.ents if ent.label_ in ["ORG", "GPE"] 
+                                 and ent.text.lower() not in ["microsoft", "c:\\programdata\\", "appcrash", 
+                                                              "symantec protection bulletin", "vps", "ioc", "wmi", "c&c", 
+                                                              "powershell", "invoke-webrequest", "dll", "anydesk", 
+                                                              "jabswitch.exe", "symantec endpoint", "jumpcloud", 
+                                                              "45.67.230[.]91", "powershell - seedworm"]]))
     return targeted_entities
 
-def enrich_malware_details(malware_name: str, file_hash: str = None) -> Dict[str, str]:
+def enrich_malware_with_virustotal(file_hash: str) -> Dict[str, str]:
     """
     Enrich malware details using VirusTotal API.
     """
-    if not VIRUSTOTAL_API_KEY:
-        return {"Name": malware_name}
-
-    # Add delay to respect VirusTotal API rate limits (4 requests per minute)
-    time.sleep(15)
-
-    if file_hash:
-        url = f"https://www.virustotal.com/api/v3/files/{file_hash}"
-    else:
-        url = f"https://www.virustotal.com/api/v3/search?query={malware_name}"
-
+    url = f"https://www.virustotal.com/api/v3/files/{file_hash}"
     headers = {"x-apikey": VIRUSTOTAL_API_KEY}
-    response = requests.get(url, headers=headers)
 
-    if response.status_code == 200:
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()  # Raise an exception for HTTP errors
         data = response.json()
-        attributes = data.get("data", {}).get("attributes", {})
         return {
-            "Name": malware_name,
-            "md5": attributes.get("md5", "N/A"),
-            "sha1": attributes.get("sha1", "N/A"),
-            "sha256": attributes.get("sha256", "N/A"),
-            "ssdeep": attributes.get("ssdeep", "N/A"),
-            "TLSH": attributes.get("tlsh", "N/A"),
-            "tags": ", ".join(attributes.get("tags", [])),
+            "md5": data.get("md5", ""),
+            "sha1": data.get("sha1", ""),
+            "sha256": data.get("sha256", ""),
+            "ssdeep": data.get("ssdeep", ""),
+            "TLSH": data.get("tlsh", ""),
+            "tags": data.get("tags", []),
         }
-    else:
-        return {"Name": malware_name}
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error querying VirusTotal for hash {file_hash}: {e}")
+        return {}
 
 def extract_malware(text: str) -> List[Dict[str, str]]:
     """
-    Extract malware details from the text.
+    Extract malware details from the text and enrich with VirusTotal data.
     """
     malware_list = []
     doc = nlp(text)
 
-    # List of known malware names (can be expanded)
-    known_malware = ["Shamoon", "WannaCry", "Stuxnet", "NotPetya", "HrServ", "Headlace"]
-
-    # Extract malware names
-    malware_names = []
-    for token in doc:
-        if token.text in known_malware:
-            malware_names.append(token.text)
+    # Extract potential malware names using NER and keywords
+    malware_keywords = ["malware", "trojan", "worm", "ransomware", "spyware", "backdoor", "rootkit"]
+    malware_names = list(set([ent.text for ent in doc.ents if ent.label_ == "PRODUCT" 
+                             and any(keyword in ent.text.lower() for keyword in malware_keywords)]))
 
     # Extract file hashes
     file_hashes = re.findall(HASH_PATTERN, text)
 
-    # Enrich malware details
+    # Enrich malware details using VirusTotal API
     for malware_name in malware_names:
-        malware_details = enrich_malware_details(malware_name)
+        malware_details = {"Name": malware_name}
         malware_list.append(malware_details)
 
     for file_hash in file_hashes:
-        malware_details = enrich_malware_details("Unknown", file_hash)
+        malware_details = {"Name": "Unknown", "Hash": file_hash}
+        malware_details.update(enrich_malware_with_virustotal(file_hash))
         malware_list.append(malware_details)
 
     return malware_list
@@ -175,7 +206,13 @@ def extract_threat_intelligence(report_text: str) -> Dict[str, Any]:
 if uploaded_file is not None:
     # Extract text from the uploaded PDF
     report_text = extract_text_from_pdf(uploaded_file)
+elif report_text_input:
+    report_text = report_text_input
+else:
+    st.warning("🙂‍↕️ Hi, Please upload a PDF file or paste the report text to get started.")
+    st.stop()
 
+if report_text:
     # Extract threat intelligence
     threat_intel = extract_threat_intelligence(report_text)
 
@@ -185,10 +222,18 @@ if uploaded_file is not None:
 
     # Visualize IoCs
     st.subheader("Indicators of Compromise (IoCs)")
-    st.write("IP Addresses:", threat_intel["IoCs"]["IP addresses"])
-    st.write("Domains:", threat_intel["IoCs"]["Domains"])
-    st.write("Email Addresses:", threat_intel["IoCs"]["Email addresses"])
-    st.write("File Hashes:", threat_intel["IoCs"]["File hashes"])
+    ioc_data = {
+        "Type": ["IP Addresses", "Domains", "Email Addresses", "File Hashes"],
+        "Count": [
+            len(threat_intel["IoCs"]["IP addresses"]),
+            len(threat_intel["IoCs"]["Domains"]),
+            len(threat_intel["IoCs"]["Email addresses"]),
+            len(threat_intel["IoCs"]["File hashes"]),
+        ],
+    }
+    df = pd.DataFrame(ioc_data)
+    fig = px.bar(df, x="Type", y="Count", title="IoCs by Type")
+    st.plotly_chart(fig)
 
     # Visualize TTPs
     st.subheader("Tactics, Techniques, and Procedures (TTPs)")
@@ -206,5 +251,22 @@ if uploaded_file is not None:
     # Visualize Targeted Entities
     st.subheader("Targeted Entities")
     st.write(threat_intel["Targeted Entities"])
+
+    # Summary Section
+    st.subheader("Summary")
+    st.write(f"**Total IoCs Extracted:** {len(threat_intel['IoCs']['IP addresses']) + len(threat_intel['IoCs']['Domains']) + len(threat_intel['IoCs']['Email addresses']) + len(threat_intel['IoCs']['File hashes'])}")
+    st.write(f"**Total TTPs Identified:** {len(threat_intel['TTPs']['Tactics']) + len(threat_intel['TTPs']['Techniques'])}")
+    st.write(f"**Total Threat Actors Identified:** {len(threat_intel['Threat Actor(s)'])}")
+    st.write(f"**Total Malware Identified:** {len(threat_intel['Malware'])}")
+    st.write(f"**Total Targeted Entities Identified:** {len(threat_intel['Targeted Entities'])}")
+
+    # Download Button
+    st.subheader("Download Results")
+    st.download_button(
+        label="Download Threat Intelligence as JSON",
+        data=json.dumps(threat_intel, indent=4),
+        file_name="threat_intelligence.json",
+        mime="application/json",
+    )
 else:
-    st.warning("Please upload a PDF file to get started.")
+    st.error("Failed to extract text from the PDF file.")
